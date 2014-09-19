@@ -5,14 +5,19 @@
 
 (defun eval-basic (exp)
   (apply (car exp)
-	 (cdr exp)))
+         (cdr exp)))
 
 (defun bind-values (bindings exp)
   ;; for now just returns expression ;;
   ;; fix this later ;;
   exp)
 
-(defun simplify (exp))
+;; SOMETHING IS WRONG WITH THIS ;;
+(defun simplify (exp)
+  (if (and (listp exp) (not (null exp)))
+    (apply (car exp)
+           (mapcar #'simplify (cdr exp)))
+    exp))
 
 
 
@@ -53,12 +58,17 @@
   (when (listp exp)
     (equal 'not (car exp))))
 
-;; Shadow built in boolean functions
+;; Back up built-in boolean functions
+(defconstant *cl-and* (fdefinition 'and))
+(defconstant *cl-or*  (fdefinition 'or))
+(defconstant *cl-eql* (fdefinition 'eql))
+(defconstant *cl-not* (fdefinition 'not))
+
+;; Shadow built-in boolean functions
 (mapcar #'shadow '(and or eql not))
 
 
 (defun and (&rest args)
-  
   (cond
    ; if NIL is in the arguments, the expression evaluates to NIL
    ((member NIL args)  NIL)
@@ -66,9 +76,9 @@
    ((apply #'eql args) (car args))
    ; return the first symbol that is not T, or T if none exist
    (T                  (let ((symbol (first (remove-if #'true? args))))
-			 (if symbol
-			   symbol
-			   T)))))
+                         (if symbol
+                           symbol
+                           T)))))
 
 (defun or (&rest args)
   (if (member T args)
@@ -83,9 +93,9 @@
    ((true? exp)   NIL)
    ((false? exp)  T)
    ((andexp? exp) (apply #'orexp
-			 (mapcar #'notexp
-				 (cdr exp))))
+                         (mapcar #'notexp
+                                 (cdr exp))))
    ((orexp? exp)  (apply #'andexp
-			 (mapcar #'notexp
-				 (cdr exp))))
+                         (mapcar #'notexp
+                                 (cdr exp))))
    (T             (notexp exp))))
