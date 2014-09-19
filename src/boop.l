@@ -3,23 +3,29 @@
 (defun evalexp (bindings exp)
   (simplify (bind-values bindings exp)))
 
-(defun eval-basic (exp)
-  (apply (car exp)
-         (cdr exp)))
-
 (defun bind-values (bindings exp)
-  ;; for now just returns expression ;;
-  ;; fix this later ;;
-  exp)
+  (if (null bindings)
+    exp
+    (let* ((current-bindings (car bindings))
+	   (old              (first  current-bindings))
+	   (new              (second current-bindings)))
+      (bind-values (cdr bindings)
+		   (subst new old exp)))))
 
 ;; SOMETHING IS WRONG WITH THIS ;;
 (defun simplify (exp)
-  (if (and (listp exp) (not (null exp)))
-    (apply (car exp)
-           (mapcar #'simplify (cdr exp)))
+  (if (and (listp exp) exp)
+    (let* ((operator            (car exp))
+	   (operands            (cdr exp))
+	   (simplified-operands (mapcar #'simplify operands))
+	   (simplified-exp      (cons operator simplified-operands))
+	   (simplifier          (case operator
+				  ('and #'simplify-and)
+				  ('or  #'simplify-or)
+				  ('eql #'simplify-eql)
+				  ('not #'simplify-not))))
+      (funcall simplifier simplified-exp))
     exp))
-
-
 
 
 ;; Expression builder functions
@@ -58,44 +64,39 @@
   (when (listp exp)
     (equal 'not (car exp))))
 
-;; Back up built-in boolean functions
-(defconstant *cl-and* (fdefinition 'and))
-(defconstant *cl-or*  (fdefinition 'or))
-(defconstant *cl-eql* (fdefinition 'eql))
-(defconstant *cl-not* (fdefinition 'not))
+;; Simplifiers
+(defun simplify-and (exp)
+  (let ((operands (cdr exp)))
+    (cond
+     ((member nil operands)    nil)
+     ((apply #'equal operands) (car operands))
+     (T                        exp))))
 
-;; Shadow built-in boolean functions
-(mapcar #'shadow '(and or eql not))
+(defun simplify-or (exp)
+  (let ((operands (cdr exp)))
+    (if (member T operands)
+      T
+      (let* ((non-false-operands (remove-if #'false? operands))
+	     (unique-operands    (remove-duplicates non-false-operands)))
+	(case (length unique-operands)
+	  (0         nil)
+	  (1         (car unique-operands))
+	  (otherwise exp))))))
 
+(defun simplify-eql (exp)
+  (let ((operands (cdr exp)))
+    (apply #'eql operands)))
 
-(defun and (&rest args)
-  (cond
-   ; if NIL is in the arguments, the expression evaluates to NIL
-   ((member NIL args)  NIL)
-   ; if all of the args are the same, return one of the args
-   ((apply #'eql args) (car args))
-   ; return the first symbol that is not T, or T if none exist
-   (T                  (let ((symbol (first (remove-if #'true? args))))
-                         (if symbol
-                           symbol
-                           T)))))
-
-(defun or (&rest args)
-  (if (member T args)
-    T
-    (first (remove-if #'false? args))))
-
-(defun eql (&rest args)
-  (apply #'equal args))
-
-(defun not (exp)
-  (cond
-   ((true? exp)   NIL)
-   ((false? exp)  T)
-   ((andexp? exp) (apply #'orexp
-                         (mapcar #'notexp
-                                 (cdr exp))))
-   ((orexp? exp)  (apply #'andexp
-                         (mapcar #'notexp
-                                 (cdr exp))))
-   (T             (notexp exp))))
+(defun simplify-not (exp)
+  (let ((operand (second exp)))
+    (cond
+     ((true? operand)   NIL)
+     ((false? operand)  T)
+     ((andexp? operand) (apply #'orexp
+                               (mapcar (compose #'simplify-not #'notexp)
+                                       (cdr operand))))
+     ((orexp? operand)  (apply #'andexp
+                               (mapcar (compose #'simplify-not #'notexp)
+                                       (cdr operand))))
+     ((notexp? operand) (second operand))
+     (T                 exp))))
